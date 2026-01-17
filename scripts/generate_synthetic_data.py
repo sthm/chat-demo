@@ -710,26 +710,33 @@ def create_cited_chunks(chunks):
     return json.dumps(cited)
 
 def generate_synthetic_data():
-    """Generate synthetic dataset"""
+    """Generate synthetic dataset.
+
+    Structure similar to ground truth:
+    - Fewer main topics (topic_key becomes the "question")
+    - Multiple rows per topic (one row per chunk)
+    - Each row represents a specific procedure/chunk
+    """
     rows = []
 
     for topic_key, topic_data in TOPICS.items():
-        questions = topic_data["questions"]
+        # Use topic_key as the main "question" (like "payment_processing")
+        # Convert to human-readable format
+        topic_name = topic_key.replace("_", " ")
+
         chunks = topic_data["chunks"]
 
-        for question in questions:
-            # Create retrieved chunks (join all chunks with newlines)
-            retrieved_chunks = "\n".join(chunks)
+        # Create one row per chunk (like ground truth structure)
+        for chunk in chunks:
+            # Generate answer based on this specific chunk
+            answer = generate_answer_from_chunks(topic_name, [chunk])
 
-            # Generate answer
-            answer = generate_answer_from_chunks(question, chunks)
-
-            # Create cited chunks
-            cited_chunks = create_cited_chunks(chunks)
+            # Create cited chunks - just this single chunk
+            cited_chunks = json.dumps([chunk])
 
             rows.append({
-                "question": question,
-                "retrieved_chunks": retrieved_chunks,
+                "question": topic_name,
+                "retrieved_chunks": chunk,
                 "answer": answer,
                 "cited_chunks": cited_chunks
             })

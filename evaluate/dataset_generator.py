@@ -1,5 +1,21 @@
-# Generate golden dataset for KB retrieval agent evaluation
+#!/usr/bin/env python3
+"""Upload evaluation dataset to LangSmith for offline evaluation.
+
+Supports two modes:
+1. Ground Truth Mode: Single-source tests from dataset.csv
+2. Multi-Source Mode: Multiple-source tests from synthetic_dataset.csv
+
+Usage:
+    python evaluate/dataset_generator.py --mode [ground-truth|multi-source] [--replace]
+
+    --mode: Which dataset to upload (ground-truth or multi-source)
+    --replace: Delete and recreate the dataset if it already exists
+"""
+
 import os
+import csv
+import sys
+import argparse
 from pathlib import Path
 from dotenv import load_dotenv
 from langsmith import Client
@@ -9,194 +25,115 @@ ENV_PATH = Path(__file__).parent.parent / ".env"
 load_dotenv(ENV_PATH)
 
 
-def create_golden_dataset():
-    """Create a dataset with 15 carefully curated banking/credit card support examples.
+def upload_dataset_from_csv(mode: str = "multi-source", replace: bool = False):
+    """Upload evaluation dataset to LangSmith for offline evaluation.
 
-    Each example has:
-    - inputs: {"question": str}
-    - outputs: {"expected_keywords": list[str], "expected_topics": list[str]}
-
-    The expected outputs are used by evaluators to check retrieval accuracy.
+    Args:
+        mode: "ground-truth" or "multi-source"
+        replace: If True, delete and recreate existing dataset. If False, skip if exists.
     """
 
     client = Client()
 
-    # Create dataset
-    dataset_name = os.getenv("EVAL_DATASET_NAME", "kb-agent-golden-set")
+    # Configuration based on mode
+    if mode == "ground-truth":
+        dataset_name = "chatbot-ground-full"
+        dataset_path = Path(__file__).parent.parent / "data" / "eval_dataset_ground_truth.csv"
+        description = "Ground truth evaluation dataset (single-source) from dataset.csv"
+    else:  # multi-source
+        dataset_name = "chatbot-multi-full"
+        dataset_path = Path(__file__).parent.parent / "data" / "eval_dataset_multi_source.csv"
+        description = "Multi-source evaluation dataset from synthetic_dataset.csv"
 
+    # Verify dataset file exists
+    if not dataset_path.exists():
+        print(f"❌ Error: Dataset not found at {dataset_path}")
+        print(f"   Run: python scripts/create_langsmith_dataset.py --mode {mode}")
+        exit(1)
+
+    # Check if dataset already exists
+    existing_dataset = None
     try:
-        dataset = client.read_dataset(dataset_name=dataset_name)
-        print(f"Dataset '{dataset_name}' already exists. Deleting...")
-        client.delete_dataset(dataset_id=dataset.id)
+        existing_dataset = client.read_dataset(dataset_name=dataset_name)
     except:
         pass
 
+    # If dataset exists and --replace not specified, skip upload
+    if existing_dataset and not replace:
+        print(f"✅ Dataset '{dataset_name}' already exists (ID: {existing_dataset.id})")
+        print(f"   Examples: {existing_dataset.example_count}")
+        print(f"   View at: https://smith.langchain.com/datasets/{existing_dataset.id}")
+        print(f"\n   Use --replace flag to delete and recreate")
+        return existing_dataset
+
+    print(f"📚 Uploading dataset from: {dataset_path}")
+
+    # Read CSV
+    examples = []
+    with open(dataset_path, 'r', encoding='utf-8') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            examples.append({
+                "inputs": {
+                    "question": row["question"]
+                },
+                "outputs": {
+                    "retrieved_chunks": row["retrieved_chunks"],
+                    "answer": row["answer"],
+                    "cited_chunks": row["cited_chunks"],
+                }
+            })
+
+    print(f"   Loaded {len(examples)} examples from CSV")
+
+    # Delete existing dataset if --replace specified
+    if existing_dataset:
+        print(f"   Found existing dataset '{dataset_name}', deleting...")
+        client.delete_dataset(dataset_id=existing_dataset.id)
+
+    # Create new dataset
     dataset = client.create_dataset(
         dataset_name=dataset_name,
-        description="Golden dataset for KB retrieval agent evaluation with 15 banking/credit card support examples"
+        description=description
     )
+    print(f"   Created new dataset: {dataset_name}")
 
-    # Golden examples - covering various banking topics
-    examples = [
-        # Payment processing questions
-        {
-            "inputs": {"question": "How do I make a payment on my credit card?"},
-            "outputs": {
-                "expected_keywords": ["payment", "online", "phone", "mail", "branch"],
-                "expected_topics": ["payment processing", "payment methods"],
-                "query_type": "payment_method"
-            }
-        },
-        {
-            "inputs": {"question": "How long does it take for a payment to process?"},
-            "outputs": {
-                "expected_keywords": ["payment", "processing", "1 business day", "5-7 days"],
-                "expected_topics": ["payment processing"],
-                "query_type": "payment_timing"
-            }
-        },
-        {
-            "inputs": {"question": "Can I set up automatic payments?"},
-            "outputs": {
-                "expected_keywords": ["automatic", "payment", "setup", "full balance", "minimum"],
-                "expected_topics": ["automatic payment setup"],
-                "query_type": "payment_automation"
-            }
-        },
-
-        # Dispute and chargeback questions
-        {
-            "inputs": {"question": "How do I dispute a charge on my card?"},
-            "outputs": {
-                "expected_keywords": ["dispute", "charge", "60 days", "online", "phone"],
-                "expected_topics": ["dispute process", "filing a dispute"],
-                "query_type": "dispute_filing"
-            }
-        },
-        {
-            "inputs": {"question": "What is a chargeback and how long does it take?"},
-            "outputs": {
-                "expected_keywords": ["chargeback", "30-90 days", "investigation", "Fair Credit Billing Act"],
-                "expected_topics": ["chargeback rights and timeline"],
-                "query_type": "chargeback_process"
-            }
-        },
-
-        # Rewards questions
-        {
-            "inputs": {"question": "How do I redeem my rewards points?"},
-            "outputs": {
-                "expected_keywords": ["rewards", "redeem", "cash back", "travel", "gift cards"],
-                "expected_topics": ["rewards redemption options"],
-                "query_type": "rewards_redemption"
-            }
-        },
-        {
-            "inputs": {"question": "Can I combine points from multiple cards?"},
-            "outputs": {
-                "expected_keywords": ["combine", "points", "transfer", "same account"],
-                "expected_topics": ["combining and transferring points"],
-                "query_type": "rewards_transfer"
-            }
-        },
-
-        # Card activation
-        {
-            "inputs": {"question": "How do I activate my new credit card?"},
-            "outputs": {
-                "expected_keywords": ["activate", "mobile app", "online", "phone", "ATM"],
-                "expected_topics": ["card activation"],
-                "query_type": "activation"
-            }
-        },
-
-        # Fraud and security
-        {
-            "inputs": {"question": "What should I do if my card is stolen?"},
-            "outputs": {
-                "expected_keywords": ["stolen", "report", "immediately", "fraud", "replacement"],
-                "expected_topics": ["reporting lost or stolen cards"],
-                "query_type": "fraud_stolen"
-            }
-        },
-        {
-            "inputs": {"question": "Am I liable for fraudulent charges?"},
-            "outputs": {
-                "expected_keywords": ["liability", "zero liability", "unauthorized", "fraud", "protection"],
-                "expected_topics": ["zero liability protection"],
-                "query_type": "fraud_liability"
-            }
-        },
-
-        # Balance transfers
-        {
-            "inputs": {"question": "How long does a balance transfer take?"},
-            "outputs": {
-                "expected_keywords": ["balance transfer", "7-14 business days", "processing"],
-                "expected_topics": ["balance transfer"],
-                "query_type": "transfer_timing"
-            }
-        },
-
-        # Credit limit questions
-        {
-            "inputs": {"question": "How do I request a credit limit increase?"},
-            "outputs": {
-                "expected_keywords": ["credit limit", "increase", "request", "online", "phone"],
-                "expected_topics": ["credit limit increase"],
-                "query_type": "credit_increase"
-            }
-        },
-
-        # Statement questions
-        {
-            "inputs": {"question": "Where can I view my monthly statements?"},
-            "outputs": {
-                "expected_keywords": ["statements", "online banking", "mobile app", "download", "PDF"],
-                "expected_topics": ["accessing account statements"],
-                "query_type": "statements"
-            }
-        },
-
-        # Interest and fees
-        {
-            "inputs": {"question": "How is interest calculated on my balance?"},
-            "outputs": {
-                "expected_keywords": ["interest", "APR", "average daily balance", "calculation"],
-                "expected_topics": ["how credit card interest is calculated"],
-                "query_type": "interest_calculation"
-            }
-        },
-
-        # Account closure
-        {
-            "inputs": {"question": "What happens to my rewards if I close my account?"},
-            "outputs": {
-                "expected_keywords": ["rewards", "close", "account", "30 days", "redeem"],
-                "expected_topics": ["account closure"],
-                "query_type": "closure_rewards"
-            }
-        }
-    ]
-
-    # Add examples to dataset
+    # Upload examples
     client.create_examples(
         dataset_id=dataset.id,
         examples=examples
     )
 
-    print(f"Created dataset '{dataset_name}' with {len(examples)} examples")
-    print(f"   Dataset ID: {dataset.id}")
+    print(f"   ✅ Uploaded {len(examples)} examples to LangSmith")
+    print(f"\n   Dataset ID: {dataset.id}")
     print(f"   View at: https://smith.langchain.com/datasets/{dataset.id}")
+    print(f"\nNext step:")
+    print(f"   Run evaluation with: python evaluate/eval_full_dataset.py --replace")
 
     return dataset
 
 
 if __name__ == "__main__":
+    # Parse command-line arguments
+    parser = argparse.ArgumentParser(description="Upload evaluation dataset to LangSmith")
+    parser.add_argument(
+        "--mode",
+        choices=["ground-truth", "multi-source"],
+        default="multi-source",
+        help="Evaluation mode: ground-truth (single-source) or multi-source"
+    )
+    parser.add_argument(
+        "--replace",
+        action="store_true",
+        help="Delete and recreate the dataset if it already exists"
+    )
+    args = parser.parse_args()
+
     # Verify LangSmith env vars are set
     if not os.getenv("LANGSMITH_API_KEY"):
-        print("Error: LANGSMITH_API_KEY not set")
+        print("❌ Error: LANGSMITH_API_KEY not set")
         print("   Set it with: export LANGSMITH_API_KEY=your_key")
         exit(1)
 
-    create_golden_dataset()
+    print(f"📤 Uploading {args.mode} dataset to LangSmith...")
+    upload_dataset_from_csv(mode=args.mode, replace=args.replace)
