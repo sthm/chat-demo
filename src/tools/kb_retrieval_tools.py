@@ -1,23 +1,23 @@
-"""
-Knowledge Base Retrieval Tools
+"""Knowledge Base Retrieval Tools
 
 Simple vector-based retrieval from synthetic dataset using in-memory search.
 This implementation uses TF-IDF for simplicity but can be upgraded to dense embeddings.
 """
-import csv
-import json
-from pathlib import Path
-from typing import List, Dict, Optional
-from functools import lru_cache
 
+import csv
+from functools import lru_cache
+from pathlib import Path
+from typing import Dict, List
+
+import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
-import numpy as np
 
 # Cache for loaded data and vectorizer
 _KB_DATA = None
 _VECTORIZER = None
 _TFIDF_MATRIX = None
+
 
 def _load_kb_data() -> List[Dict]:
     """Load knowledge base data from CSVs - both ground truth and synthetic (cached)"""
@@ -31,24 +31,25 @@ def _load_kb_data() -> List[Dict]:
         # Load ground truth dataset
         ground_truth_path = base_path / "dataset.csv"
         if ground_truth_path.exists():
-            with open(ground_truth_path, 'r', encoding='utf-8') as f:
+            with open(ground_truth_path, encoding="utf-8") as f:
                 reader = csv.DictReader(f)
                 for row in reader:
-                    row['source'] = 'ground_truth'
+                    row["source"] = "ground_truth"
                     _KB_DATA.append(row)
 
         # Load synthetic dataset
         synthetic_path = base_path / "synthetic_dataset.csv"
         if synthetic_path.exists():
-            with open(synthetic_path, 'r', encoding='utf-8') as f:
+            with open(synthetic_path, encoding="utf-8") as f:
                 reader = csv.DictReader(f)
                 for row in reader:
-                    row['source'] = 'synthetic'
+                    row["source"] = "synthetic"
                     _KB_DATA.append(row)
 
         print(f"Loaded {len(_KB_DATA)} total KB entries (ground truth + synthetic)")
 
     return _KB_DATA
+
 
 def _initialize_vectorizer():
     """Initialize TF-IDF vectorizer and compute document vectors (cached)"""
@@ -57,6 +58,12 @@ def _initialize_vectorizer():
     if _VECTORIZER is None:
         data = _load_kb_data()
 
+        if not data:
+            raise ValueError(
+                "No knowledge base data found. Ensure dataset.csv or "
+                "synthetic_dataset.csv exists in the data/ directory."
+            )
+
         # Combine question and chunks for better retrieval
         documents = []
         for row in data:
@@ -64,26 +71,25 @@ def _initialize_vectorizer():
             text = f"{row['question']} {row['retrieved_chunks']}"
             documents.append(text)
 
-        # Create TF-IDF vectorizer
-        _VECTORIZER = TfidfVectorizer(
-            max_features=5000,
-            ngram_range=(1, 3),
-            stop_words='english',
-            min_df=1
+        # Create and fit vectorizer using local variables so that the
+        # global _VECTORIZER is only set after a successful fit.
+        # This prevents a failed fit_transform from leaving an unfitted
+        # vectorizer in the global cache.
+        vectorizer = TfidfVectorizer(
+            max_features=5000, ngram_range=(1, 3), stop_words="english", min_df=1
         )
+        tfidf_matrix = vectorizer.fit_transform(documents)
 
-        # Fit and transform documents
-        _TFIDF_MATRIX = _VECTORIZER.fit_transform(documents)
+        _VECTORIZER = vectorizer
+        _TFIDF_MATRIX = tfidf_matrix
 
     return _VECTORIZER, _TFIDF_MATRIX
 
+
 def search_knowledge_base(
-    query: str,
-    top_k: int = 5,
-    min_similarity: float = 0.1
+    query: str, top_k: int = 5, min_similarity: float = 0.1
 ) -> List[Dict]:
-    """
-    Search knowledge base using TF-IDF similarity.
+    """Search knowledge base using TF-IDF similarity.
 
     Args:
         query: Search query string
@@ -116,18 +122,18 @@ def search_knowledge_base(
         score = similarities[idx]
         if score >= min_similarity:
             result = {
-                'question': data[idx]['question'],
-                'retrieved_chunks': data[idx]['retrieved_chunks'],
-                'answer': data[idx]['answer'],
-                'similarity_score': float(score)
+                "question": data[idx]["question"],
+                "retrieved_chunks": data[idx]["retrieved_chunks"],
+                "answer": data[idx]["answer"],
+                "similarity_score": float(score),
             }
             results.append(result)
 
     return results
 
-def get_article_by_topic(topic: str) -> Optional[Dict]:
-    """
-    Get a specific article/entry by exact topic match.
+
+def get_article_by_topic(topic: str) -> Dict | None:
+    """Get a specific article/entry by exact topic match.
 
     Args:
         topic: Exact topic to search for
@@ -139,27 +145,27 @@ def get_article_by_topic(topic: str) -> Optional[Dict]:
 
     # Try exact match first
     for row in data:
-        if row['question'].lower() == topic.lower():
+        if row["question"].lower() == topic.lower():
             return {
-                'question': row['question'],
-                'retrieved_chunks': row['retrieved_chunks'],
-                'answer': row['answer']
+                "question": row["question"],
+                "retrieved_chunks": row["retrieved_chunks"],
+                "answer": row["answer"],
             }
 
     # Try partial match
     for row in data:
-        if topic.lower() in row['question'].lower():
+        if topic.lower() in row["question"].lower():
             return {
-                'question': row['question'],
-                'retrieved_chunks': row['retrieved_chunks'],
-                'answer': row['answer']
+                "question": row["question"],
+                "retrieved_chunks": row["retrieved_chunks"],
+                "answer": row["answer"],
             }
 
     return None
 
-def list_available_topics(category: Optional[str] = None) -> List[str]:
-    """
-    List all available topics in the knowledge base.
+
+def list_available_topics(category: str | None = None) -> List[str]:
+    """List all available topics in the knowledge base.
 
     Args:
         category: Optional category filter (e.g., "payment", "dispute", "fraud")
@@ -169,7 +175,7 @@ def list_available_topics(category: Optional[str] = None) -> List[str]:
     """
     data = _load_kb_data()
 
-    topics = [row['question'] for row in data]
+    topics = [row["question"] for row in data]
 
     if category:
         # Filter topics by category keyword
@@ -177,13 +183,10 @@ def list_available_topics(category: Optional[str] = None) -> List[str]:
 
     return sorted(set(topics))
 
+
 @lru_cache(maxsize=100)
-def search_knowledge_base_cached(
-    query: str,
-    top_k: int = 5
-) -> str:
-    """
-    Cached version of search_knowledge_base that returns formatted string.
+def search_knowledge_base_cached(query: str, top_k: int = 5) -> str:
+    """Cached version of search_knowledge_base that returns formatted string.
 
     This is useful for LLM tool calling where you want consistent output format.
 
@@ -203,20 +206,21 @@ def search_knowledge_base_cached(
     output.append(f"Found {len(results)} results for: {query}\n")
 
     for i, result in enumerate(results, 1):
-        output.append(f"\n{'='*60}")
+        output.append(f"\n{'=' * 60}")
         output.append(f"Result {i} (similarity: {result['similarity_score']:.3f})")
-        output.append(f"{'='*60}")
+        output.append(f"{'=' * 60}")
         output.append(f"\nTopic: {result['question']}")
         output.append(f"\nAnswer: {result['answer']}")
         output.append(f"\nDetailed Information:\n{result['retrieved_chunks'][:500]}...")
 
     return "\n".join(output)
 
+
 # Tool functions for LangChain integration
 
+
 def search_kb_tool(query: str, num_results: int = 3) -> str:
-    """
-    Search the knowledge base for relevant information.
+    """Search the knowledge base for relevant information.
 
     Use this tool to find answers to customer questions about banking services,
     credit cards, payments, disputes, fraud protection, and other banking topics.
@@ -236,14 +240,16 @@ def search_kb_tool(query: str, num_results: int = 3) -> str:
 
     output = []
     for i, result in enumerate(results, 1):
-        output.append(f"\n--- Result {i} (relevance: {result['similarity_score']:.2f}) ---")
+        output.append(
+            f"\n--- Result {i} (relevance: {result['similarity_score']:.2f}) ---"
+        )
         output.append(f"Topic: {result['question']}")
         output.append(f"\nAnswer: {result['answer']}")
 
         # Include chunks for detailed information
-        chunks = result['retrieved_chunks'].split('\n\n')
+        chunks = result["retrieved_chunks"].split("\n\n")
         if chunks:
-            output.append(f"\nDetailed Procedures:")
+            output.append("\nDetailed Procedures:")
             # Include first 2-3 chunks for context
             for chunk in chunks[:3]:
                 if chunk.strip():
@@ -251,9 +257,9 @@ def search_kb_tool(query: str, num_results: int = 3) -> str:
 
     return "\n".join(output)
 
+
 def get_topic_details(topic: str) -> str:
-    """
-    Get detailed information about a specific topic.
+    """Get detailed information about a specific topic.
 
     Use this tool when you need complete procedural details about a specific
     banking topic or process.
@@ -270,22 +276,25 @@ def get_topic_details(topic: str) -> str:
         # Try searching for similar topics
         results = search_knowledge_base(topic, top_k=3)
         if results:
-            similar_topics = [r['question'] for r in results]
-            return f"Topic '{topic}' not found.\n\nDid you mean one of these?\n" + "\n".join(f"  - {t}" for t in similar_topics)
+            similar_topics = [r["question"] for r in results]
+            return (
+                f"Topic '{topic}' not found.\n\nDid you mean one of these?\n"
+                + "\n".join(f"  - {t}" for t in similar_topics)
+            )
         return f"Topic '{topic}' not found in knowledge base."
 
     output = []
     output.append(f"Topic: {article['question']}")
-    output.append(f"\n{'='*60}")
+    output.append(f"\n{'=' * 60}")
     output.append(f"Summary: {article['answer']}")
-    output.append(f"\n{'='*60}")
+    output.append(f"\n{'=' * 60}")
     output.append(f"Detailed Information:\n\n{article['retrieved_chunks']}")
 
     return "\n".join(output)
 
-def list_topics(category: Optional[str] = None) -> str:
-    """
-    List available topics in the knowledge base.
+
+def list_topics(category: str | None = None) -> str:
+    """List available topics in the knowledge base.
 
     Use this tool to discover what topics are available to search.
 
@@ -308,12 +317,13 @@ def list_topics(category: Optional[str] = None) -> str:
 
     return "\n".join(output)
 
+
 # Export tools
 __all__ = [
-    'search_kb_tool',
-    'get_topic_details',
-    'list_topics',
-    'search_knowledge_base',
-    'get_article_by_topic',
-    'list_available_topics'
+    "search_kb_tool",
+    "get_topic_details",
+    "list_topics",
+    "search_knowledge_base",
+    "get_article_by_topic",
+    "list_available_topics",
 ]

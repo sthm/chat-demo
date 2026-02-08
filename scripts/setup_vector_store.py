@@ -1,5 +1,4 @@
-"""
-Setup vector store for knowledge base retrieval.
+"""Setup vector store for knowledge base retrieval.
 
 This script:
 1. Loads synthetic dataset CSV
@@ -7,51 +6,57 @@ This script:
 3. Builds FAISS vector index
 4. Saves index and metadata for runtime use
 """
+
 import csv
 import json
-import pickle
 from pathlib import Path
-from typing import List, Dict
+from typing import Dict, List
 
-from langchain_openai import OpenAIEmbeddings
+from dotenv import load_dotenv
+from langchain_community.docstore.document import Document
 from langchain_community.vectorstores import FAISS
-from langchain.docstore.document import Document
+from langchain_openai import OpenAIEmbeddings
+
+load_dotenv()
+
 
 def load_synthetic_data(csv_path: str) -> List[Dict]:
     """Load synthetic dataset from CSV"""
     data = []
-    with open(csv_path, 'r', encoding='utf-8') as f:
+    with open(csv_path, encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for row in reader:
             data.append(row)
     return data
+
 
 def create_documents_from_data(data: List[Dict]) -> List[Document]:
     """Convert CSV rows into LangChain documents"""
     documents = []
 
     for idx, row in enumerate(data):
-        question = row['question']
-        retrieved_chunks = row['retrieved_chunks']
-        answer = row['answer']
+        question = row["question"]
+        retrieved_chunks = row["retrieved_chunks"]
+        answer = row["answer"]
 
         # Split retrieved_chunks into individual chunks (they're separated by newlines/sections)
-        chunks = [c.strip() for c in retrieved_chunks.split('\n\n') if c.strip()]
+        chunks = [c.strip() for c in retrieved_chunks.split("\n\n") if c.strip()]
 
         for chunk_idx, chunk in enumerate(chunks):
             # Create a document for each chunk
             doc = Document(
                 page_content=chunk,
                 metadata={
-                    'question': question,
-                    'answer': answer,
-                    'chunk_id': f'{idx}_{chunk_idx}',
-                    'source': 'synthetic_dataset'
-                }
+                    "question": question,
+                    "answer": answer,
+                    "chunk_id": f"{idx}_{chunk_idx}",
+                    "source": "synthetic_dataset",
+                },
             )
             documents.append(doc)
 
     return documents
+
 
 def build_vector_store(documents: List[Document], embeddings) -> FAISS:
     """Build FAISS vector store from documents"""
@@ -59,18 +64,19 @@ def build_vector_store(documents: List[Document], embeddings) -> FAISS:
     vectorstore = FAISS.from_documents(documents, embeddings)
     return vectorstore
 
+
 def main():
     """Main setup function"""
-    print("="*60)
+    print("=" * 60)
     print("Setting up Vector Store for Knowledge Base")
-    print("="*60)
+    print("=" * 60)
 
     # Paths
-    project_root = Path("/Users/robertxu/Desktop/Projects/growth/chatbot")
+    project_root = Path(__file__).parent.parent
     data_dir = project_root / "data"
     csv_path = data_dir / "synthetic_dataset.csv"
     vector_store_dir = data_dir / "vector_store"
-    vector_store_dir.mkdir(exist_ok=True)
+    vector_store_dir.mkdir(parents=True, exist_ok=True)
 
     # Load data
     print("\n[1/4] Loading synthetic dataset...")
@@ -98,24 +104,25 @@ def main():
 
     # Save metadata
     metadata = {
-        'num_documents': len(documents),
-        'num_questions': len(data),
-        'embedding_model': 'text-embedding-3-small',
-        'vectorstore_type': 'FAISS'
+        "num_documents": len(documents),
+        "num_questions": len(data),
+        "embedding_model": "text-embedding-3-small",
+        "vectorstore_type": "FAISS",
     }
     metadata_path = vector_store_dir / "metadata.json"
-    with open(metadata_path, 'w') as f:
+    with open(metadata_path, "w") as f:
         json.dump(metadata, f, indent=2)
     print(f"✓ Metadata saved to: {metadata_path}")
 
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("Vector Store Setup Complete!")
-    print("="*60)
-    print(f"\nStats:")
+    print("=" * 60)
+    print("\nStats:")
     print(f"  - Questions: {len(data)}")
     print(f"  - Document chunks: {len(documents)}")
     print(f"  - Average chunks per question: {len(documents) / len(data):.1f}")
-    print(f"\nVector store ready for use in retrieval tools!")
+    print("\nVector store ready for use in retrieval tools!")
+
 
 if __name__ == "__main__":
     main()

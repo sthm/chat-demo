@@ -17,13 +17,13 @@ cp .env.example .env
 
 ```bash
 # Generate 200 single-turn traces
-python scripts/generate_traces.py
+uv run scripts/generate_traces.py
 
 # Generate 20 multi-turn conversation threads
-python scripts/generate_threads.py
+uv run scripts/generate_threads.py
 
 # Generate question bank (if needed)
-python scripts/generate_question_bank.py
+uv run scripts/generate_question_bank.py
 ```
 
 ## Run Evaluation
@@ -32,33 +32,33 @@ python scripts/generate_question_bank.py
 
 ```bash
 # Generate both ground-truth and multi-source datasets
-python scripts/create_langsmith_dataset.py --mode both --max-examples 10
+uv run scripts/create_langsmith_dataset.py --mode both --max-examples 10
 
 # Or generate specific mode only
-python scripts/create_langsmith_dataset.py --mode ground-truth --max-examples 5
-python scripts/create_langsmith_dataset.py --mode multi-source --max-examples 10
+uv run scripts/create_langsmith_dataset.py --mode ground-truth --max-examples 5
+uv run scripts/create_langsmith_dataset.py --mode multi-source --max-examples 10
 ```
 
 ### Upload to LangSmith
 
 ```bash
 # Upload ground-truth dataset (single-source tests from dataset.csv)
-python evaluate/dataset_generator.py --mode ground-truth --replace
+uv run evaluate/dataset_generator.py --mode ground-truth --replace
 
 # Upload multi-source dataset (realistic multi-source tests from synthetic_dataset.csv)
-python evaluate/dataset_generator.py --mode multi-source --replace
+uv run evaluate/dataset_generator.py --mode multi-source --replace
 ```
 
 ### Run Evaluations
 
 ```bash
 # Test with single example
-python evaluate/eval_single_example.py --mode ground-truth --replace
-python evaluate/eval_single_example.py --mode multi-source --replace
+uv run evaluate/eval_single_example.py --mode ground-truth --replace
+uv run evaluate/eval_single_example.py --mode multi-source --replace
 
 # Run full dataset evaluation
-python evaluate/eval_full_dataset.py --mode ground-truth --replace
-python evaluate/eval_full_dataset.py --mode multi-source --replace
+uv run evaluate/eval_full_dataset.py --mode ground-truth --replace
+uv run evaluate/eval_full_dataset.py --mode multi-source --replace
 
 # Note: --replace flag creates new evaluation experiments
 # Without --replace, scripts will skip if results already exist

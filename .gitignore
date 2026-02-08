@@ -170,3 +170,5 @@ codebase_tools.log
 
 # Note: deps/chat-repo/ (including private repos) is tracked for LangGraph Cloud deployment
 # The private repos need to be in GitHub so LangGraph Cloud can clone them
+.DS_Store
+data/
